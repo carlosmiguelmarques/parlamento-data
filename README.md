@@ -32,15 +32,14 @@ output/
 
 ## Correr localmente
 
-**Requisitos:** Python 3.9 ou superior. Em macOS, o Python 3.9 que vem com
-o Xcode chega — mas se quiseres modernizar, `brew install python@3.12`.
+**Requisitos:** Python 3.12.
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-# Primeira corrida — descarrega tudo (pode demorar ~30s pelos 60 MB do
+# Primeira run — descarrega tudo (pode demorar ~30s pelos 60 MB do
 # ficheiro de iniciativas).
 python -m src.main
 
@@ -48,7 +47,8 @@ python -m src.main
 python -m src.main --cache-max-age-hours 6
 ```
 
-O output fica em `./output/`. Verifica `output/meta.json` para o resumo.
+O output fica em `./output/`.
+`output/meta.json` para o resumo.
 
 ## Schema da API
 
