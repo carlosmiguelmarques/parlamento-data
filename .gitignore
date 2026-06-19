@@ -1,0 +1,19 @@
+# Cache local de snapshots da AR (não persistir entre execuções de Actions).
+cache/
+
+# Output da transformação — só publicado pelo workflow para a branch gh-pages.
+# Em desenvolvimento local fica fora do git.
+output/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.python-version
+
+# Editores
+.vscode/
+.idea/
+.DS_Store

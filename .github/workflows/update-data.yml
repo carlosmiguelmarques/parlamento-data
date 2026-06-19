@@ -1,0 +1,64 @@
+name: Atualizar dados da AR
+
+on:
+  # Corre diariamente às 06:00 UTC (07:00 / 08:00 hora de Lisboa).
+  schedule:
+    - cron: "0 6 * * *"
+  # Permite correr manualmente a partir da UI do GitHub.
+  workflow_dispatch:
+  # Corre também em pushes para main para testar o pipeline.
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "requirements.txt"
+      - ".github/workflows/update-data.yml"
+
+# Apenas uma execução de cada vez — cancela anteriores se chegar uma nova.
+concurrency:
+  group: update-data
+  cancel-in-progress: false
+
+permissions:
+  contents: write  # necessário para fazer push para gh-pages
+  pages: write
+  id-token: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Instalar dependências
+        run: pip install -r requirements.txt
+
+      - name: Correr pipeline
+        run: python -m src.main
+
+      - name: Verificar output
+        run: |
+          test -f output/meta.json
+          test -f output/iniciativas/index.json
+          test -f output/deputados/index.json
+          cat output/meta.json
+          echo "Ficheiros gerados:"
+          find output -type f | wc -l
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: output
+
+      - name: Deploy para GitHub Pages
+        uses: actions/deploy-pages@v4
