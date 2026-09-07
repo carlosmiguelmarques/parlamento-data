@@ -341,6 +341,14 @@ def _ultima_data_evento(eventos: list[dict]) -> str | None:
     return max(datas) if datas else None
 
 
+def _is_rejeitada_result(resultado: Any) -> bool:
+    """True se o campo `resultado` de uma votação indica rejeição/chumbo."""
+    if not isinstance(resultado, str):
+        return False
+    lower = resultado.lower()
+    return "rejeitad" in lower or "chumbad" in lower
+
+
 def _transformar_evento(ev_raw: dict) -> dict:
     """Transforma um IniEvento sanando tipos e parseando votações."""
     cod = _to_int(ev_raw.get("CodigoFase"))
@@ -454,6 +462,15 @@ def _transformar_iniciativa(ini_raw: dict) -> tuple[dict, dict]:
     # Flag conveniente: tornou-se lei?
     tornou_se_lei = any(e.get("categoria") == Categoria.PUBLICADA.value for e in eventos)
 
+    # Flag conveniente: alguma das votações teve resultado de rejeição?
+    # Útil no resumo/index para poder pintar o cartão de vermelho sem forçar
+    # a app a puxar o detalhe.
+    foi_rejeitada_em_votacao = any(
+        _is_rejeitada_result(v.get("resultado"))
+        for e in eventos
+        for v in (e.get("votacoes") or [])
+    )
+
     autores = _autores_resumo(ini_raw)
 
     resumo = {
@@ -471,6 +488,7 @@ def _transformar_iniciativa(ini_raw: dict) -> tuple[dict, dict]:
         "autorOutroSigla": autores["outroSigla"],
         "autorOutroNome": autores["outroNome"],
         "tornouSeLei": tornou_se_lei,
+        "foiRejeitadaEmVotacao": foi_rejeitada_em_votacao,
     }
 
     detalhe = {
