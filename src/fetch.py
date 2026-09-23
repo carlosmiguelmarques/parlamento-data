@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from pathlib import Path
-from time import time
 
 import requests
 
@@ -26,6 +26,9 @@ logger = logging.getLogger(__name__)
 
 class FetchError(Exception):
     """Erro ao descarregar ou validar um snapshot."""
+
+
+_RETRY_DELAYS = (30, 60, 120)  # segundos entre tentativas (3 retries)
 
 
 def fetch_source(
@@ -40,14 +43,17 @@ def fetch_source(
     Se já existir um ficheiro válido em cache com idade inferior a
     `max_age_hours`, devolve-o sem fazer download.
 
+    Faz até 3 retries com backoff (30s, 60s, 120s) para lidar com
+    indisponibilidade transitória do servidor da AR durante atualizações.
+
     Devolve o caminho do ficheiro local. Levanta FetchError em caso de
-    falha (HTTP error, JSON inválido, ficheiro vazio).
+    falha persistente (HTTP error, JSON inválido, ficheiro vazio).
     """
     cache_dir.mkdir(parents=True, exist_ok=True)
     target = cache_dir / source.filename
 
     if max_age_hours is not None and target.exists():
-        age_hours = (time() - target.stat().st_mtime) / 3600
+        age_hours = (time.time() - target.stat().st_mtime) / 3600
         if age_hours < max_age_hours:
             logger.info(
                 "A usar cache local de '%s' (idade %.1fh < %.1fh)",
@@ -57,16 +63,44 @@ def fetch_source(
             )
             return target
 
-    logger.info("A descarregar '%s' de %s", source.key, source.url[:80] + "...")
+    last_error: FetchError | None = None
+    attempts = 1 + len(_RETRY_DELAYS)
+
+    for attempt in range(attempts):
+        if attempt > 0:
+            delay = _RETRY_DELAYS[attempt - 1]
+            logger.warning(
+                "'%s' tentativa %d/%d falhou — a aguardar %ds antes de repetir.",
+                source.key, attempt, attempts, delay,
+            )
+            time.sleep(delay)
+
+        logger.info(
+            "A descarregar '%s' (tentativa %d/%d) de %s",
+            source.key, attempt + 1, attempts, source.url[:80] + "...",
+        )
+        try:
+            content = _download(source, timeout_seconds)
+        except FetchError as e:
+            last_error = e
+            continue
+
+        target.write_bytes(content)
+        size_mb = len(content) / (1024 * 1024)
+        logger.info("'%s' guardado em %s (%.1f MB)", source.key, target, size_mb)
+        return target
+
+    raise last_error  # type: ignore[misc]
+
+
+def _download(source: Source, timeout_seconds: int) -> bytes:
+    """Faz um único pedido HTTP e valida que o conteúdo é JSON. Levanta FetchError."""
     try:
         response = requests.get(
             source.url,
             timeout=timeout_seconds,
             headers={
-                # User-Agent realista evita possíveis bloqueios anti-bot.
-                "User-Agent": (
-                    "Mozilla/5.0 (parlamento-data; +https://github.com/)"
-                ),
+                "User-Agent": "Mozilla/5.0 (parlamento-data; +https://github.com/)",
                 "Accept-Encoding": "gzip, br",
             },
         )
@@ -79,22 +113,17 @@ def fetch_source(
         raise FetchError(f"Snapshot de '{source.key}' veio vazio")
 
     # Validar que é JSON antes de gravar — protege contra páginas de erro
-    # HTML servidas com status 200, que já vi acontecer noutros serviços.
+    # HTML servidas com status 200, que já vi acontecer neste servidor.
     try:
         json.loads(content)
     except json.JSONDecodeError as e:
-        # Guardar o conteúdo para diagnóstico, mas falhar a operação.
-        broken = cache_dir / f"{source.filename}.broken"
-        broken.write_bytes(content[:5000])
+        preview = content[:200].decode("utf-8", errors="replace")
         raise FetchError(
-            f"Snapshot de '{source.key}' não é JSON válido "
-            f"(primeiros 5KB em {broken})"
+            f"Snapshot de '{source.key}' não é JSON válido. "
+            f"Início da resposta: {preview!r}"
         ) from e
 
-    target.write_bytes(content)
-    size_mb = len(content) / (1024 * 1024)
-    logger.info("'%s' guardado em %s (%.1f MB)", source.key, target, size_mb)
-    return target
+    return content
 
 
 def fetch_all(
